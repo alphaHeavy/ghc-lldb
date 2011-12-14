@@ -1,5 +1,7 @@
 import lldb
 
+# (lldb) command script import '/Source/ghc-lldb/ghc.py'
+
 closure_name_map = {0:  'INVALID_OBJECT'
                    ,1:  'CONSTR'
                    ,2:  'CONSTR_1_0'
@@ -136,11 +138,11 @@ def get_info_table_from_closure(obj):
     target = lldb.debugger.GetSelectedTarget()
     # lldb doesn't support negative subscripts, this would be cleaner as '.header.info[-1]'
     info_table = obj.GetValueForExpressionPath('.header.info')
-    info_table_sym = target.ResolveSymbolContextForAddress(info_table.GetAddress(), lldb.eSymbolContextSymbol).GetSymbol()
+    info_table_sym = target.ResolveSymbolContextForAddress(info_table.Dereference().GetAddress(), lldb.eSymbolContextSymbol).GetSymbol()
     # sym.GetStartAddress().GetLoadAddress(target)
-    # cast it back ot the info table
+    # cast it back to the info table
     stg_info_table_type = target.FindFirstType('StgInfoTable_')
-    return info_table.CreateValueFromAddress(info_table.GetName() + '_info', info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
+    return info_table.CreateValueFromAddress(info_table_sym.GetName(), info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
 
 def cast_closure(obj):
     obj = untag_closure(obj)
@@ -149,5 +151,18 @@ def cast_closure(obj):
     type_name = closure_type_name(closure_type.GetValueAsUnsigned())
     target = lldb.debugger.GetSelectedTarget()
     closure_type = target.FindFirstType(type_name)
-    return obj.Cast(closure_type)
+    # propagate the info table name to the closure
+    return obj.CreateValueFromAddress(info_table.GetName(), obj.GetLoadAddress(), closure_type)
+    # obj.CreateChildAtOffset(name, 0, closure_type)
+    # return obj.Cast(closure_type)
+
+def print_obj_dbg(debugger, args, result, dict):
+    frame = lldb.thread.GetSelectedFrame()
+    obj = frame.EvaluateExpression(args) # frame.FindValue(args, lldb.eValueTypeRegister)
+    print cast_closure(obj)
+    return None
+
+def __lldb_init_module(debugger, session_dict):
+    debugger.HandleCommand("command script add -f ghc.print_obj_dbg printObj")
+    return None
 
