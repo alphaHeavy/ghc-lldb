@@ -144,6 +144,19 @@ def get_info_table_from_closure(obj):
     stg_info_table_type = target.FindFirstType('StgInfoTable_')
     return info_table.CreateValueFromAddress(info_table_sym.GetName(), info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
 
+def get_con_desc(info):
+    target = lldb.debugger.GetSelectedTarget()
+    stg_con_info_table_type = target.FindTypes('StgConInfoTable_').GetTypeAtIndex(0)
+    # stg_con_info_table_type = target.FindFirstType('StgConInfoTable_') # waiting on bug 11574
+    con_info = info.Cast(stg_con_info_table_type)
+    con_info_ptr = con_info.AddressOf()
+    char_type = info.GetType().GetBasicType(lldb.eBasicTypeChar)
+    char_ptr_type = char_type.GetPointerType()
+    base = con_info_ptr.GetValueForExpressionPath('[1]')
+    offset = con_info_ptr.GetValueForExpressionPath('[1].con_desc').GetValueAsUnsigned()
+    # return base.AddressOf().CreateChildAtOffset('con_desc', offset, char_type)
+    return base.CreateValueFromAddress('con_desc', base.GetLoadAddress()+offset, char_type).AddressOf().GetSummary().strip('"')
+
 def cast_closure(obj):
     obj = untag_closure(obj)
     info_table = get_info_table_from_closure(obj)
@@ -151,10 +164,10 @@ def cast_closure(obj):
     type_name = closure_type_name(closure_type.GetValueAsUnsigned())
     target = lldb.debugger.GetSelectedTarget()
     closure_type = target.FindFirstType(type_name)
-    # propagate the info table name to the closure
-    return obj.CreateValueFromAddress(info_table.GetName(), obj.GetLoadAddress(), closure_type)
+    # propagate the constructor desciption or info table name to the closure
+    name = get_con_desc(info_table) or info_table.GetName()
+    return obj.CreateValueFromAddress(name, obj.GetLoadAddress(), closure_type)
     # obj.CreateChildAtOffset(name, 0, closure_type)
-    # return obj.Cast(closure_type)
 
 def print_obj_dbg(debugger, args, result, dict):
     frame = lldb.thread.GetSelectedFrame()
