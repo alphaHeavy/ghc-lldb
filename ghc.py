@@ -7,13 +7,13 @@ class Closure(object):
     def __init__(self, debugger, obj):
         self.debugger = debugger
         self.obj = obj
-        self.payload = {}
+        self.payload = []
 
     def __str__(self):
-        return str(self.info_table())
+        return str(self.info_table()) + ' ' + str(self.payload)
 
     def __repr__(self):
-        return str(self.info_table())
+        return str(self.info_table()) + ' ' + str(self.payload)
 
     def reify(self):
         info = self.info_table().info_table
@@ -27,12 +27,12 @@ class Closure(object):
         i = 0
         while i < ptrs:
             payload_i = payload.GetValueForExpressionPath('[' + str(i) + ']')
-            self.payload[i] = Closure.get(self.debugger, payload_i)
+            self.payload.append(Closure.get(self.debugger, payload_i))
             i += 1
 
         while i < ptrs+nptrs:
             payload_i = payload.GetValueForExpressionPath('[' + str(i) + ']')
-            self.payload[i] = payload_i.GetValueAsUnsigned() # Closure.get(self.debugger, Closure.untag(self.debugger, payload_i))
+            self.payload.append(payload_i.GetValueAsUnsigned())
             i += 1
 
     @staticmethod
@@ -69,7 +69,9 @@ class Closure(object):
         target = debugger.GetSelectedTarget()
         closure_type = find_first_type(debugger, type_name)
         # propagate the constructor desciption or info table name to the closure
-        return Closure(debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
+        closure =  Closure(debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
+        closure.reify()
+        return closure
         # obj.CreateChildAtOffset(name, 0, closure_type)
 
     @staticmethod
@@ -242,13 +244,21 @@ def print_obj_dbg(debugger, args, result, dict):
     frame = lldb.thread.GetSelectedFrame()
     obj = frame.EvaluateExpression(args) # frame.FindValue(args, lldb.eValueTypeRegister)
     obj = Closure.get(debugger, obj)
-    obj.reify()
     print obj
-    print obj.payload
     # print_std_obj_payload(obj)
     return None
 
+def print_base_reg(debuger, args, result, dict):
+    frame = lldb.thread.GetSelectedFrame()
+    print frame.EvaluateExpression('*((StgRegTable_*)$r13)')
+
+def print_current_tso(debugger, args, result, dict):
+    frame = lldb.thread.GetSelectedFrame()
+    print frame.EvaluateExpression('*((StgRegTable_*)$r13)->rCurrentTSO')
+
 def __lldb_init_module(debugger, session_dict):
     debugger.HandleCommand("command script add -f ghc.print_obj_dbg printObj")
+    debugger.HandleCommand("command script add -f ghc.print_base_reg printBaseReg")
+    debugger.HandleCommand("command script add -f ghc.print_current_tso printCurrentTSO")
     return None
 

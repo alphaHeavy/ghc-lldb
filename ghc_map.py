@@ -91,10 +91,10 @@ closure_type_map = {'CONSTR':               'StgClosure_'
                    ,'IND_PERM':             'StgInd'
                    ,'IND_STATIC':           'StgIndStatic'
                    # ,'RET_BCO ':
-                   # ,'RET_SMALL':
-                   # ,'RET_BIG':
-                   # ,'RET_DYN':
-                   # ,'RET_FUN ':
+                   ,'RET_SMALL':            'StgClosure_'
+                   ,'RET_BIG':              'StgClosure_'
+                   ,'RET_DYN':              'StgClosure_'
+                   ,'RET_FUN ':              'StgClosure_'
                    ,'UPDATE_FRAME':         'StgUpdateFrame'
                    ,'CATCH_FRAME':          'StgCatchFrame'
                    ,'UNDERFLOW_FRAME':      'StgUnderflowFrame'
@@ -114,7 +114,7 @@ closure_type_map = {'CONSTR':               'StgClosure_'
                    # ,'PRIM':
                    # ,'MUT_PRIM':
                    ,'TSO':                  'StgTSO'
-                   # ,'STACK ':
+                   ,'STACK ':               'StgClosure_'
                    ,'TREC_CHUNK':           'StgTRecChunk'
                    ,'ATOMICALLY_FRAME':     'StgAtomicallyFrame'
                    ,'CATCH_RETRY_FRAME':    'StgCatchRetryFrame'
