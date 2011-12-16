@@ -110,117 +110,294 @@ class Constructor(Closure):
     def __init__(self, debugger, obj):
         super(Constructor, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<Constructor info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class Function(Closure):
     def __init__(self, debugger, obj):
         super(Function, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<Function info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class Thunk(Closure):
     def __init__(self, debugger, obj):
         super(Thunk, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<Thunk info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class Selector(Closure):
     def __init__(self, debugger, obj):
         super(Selector, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<Selector info_table:{0} selectee:{1}>'.format(self.info_table(), self.selectee)
+
+    def reify(self):
+        super(Selector, self).reify()
+        self.selectee = Closure.get(self.debugger, self.obj.GetChildMemberWithName('selectee'))
 
 class BCO(Closure):
     def __init__(self, debugger, obj):
         super(BCO, self).__init__(debugger, obj)
 
-class AP(Closure):
+    def __repr__(self):
+        return '<BCO info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
+class AP(PAP):
     def __init__(self, debugger, obj):
         super(AP, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<AP info_table:{0} arity:{1} n_args:{2} fun:{3} payload:{4}>'.format(
+            self.info_table(),
+            self.arity.GetValue(),
+            self.n_args.GetValue(),
+            self.fun.GetValue(),
+            self.payload)
 
 class PAP(Closure):
     def __init__(self, debugger, obj):
         super(PAP, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<PAP info_table:{0} arity:{1} n_args:{2} fun:{3} payload:{4}>'.format(
+            self.info_table(),
+            self.arity.GetValue(),
+            self.n_args.GetValue(),
+            self.fun.GetValue(),
+            self.payload)
+
+    def reify(self):
+        super(PAP, self).reify()
+        self.arity = self.obj.GetChildMemberWithName('arity')
+        self.n_args = self.obj.GetChildMemberWithName('n_args')
+        self.fun = self.obj.GetChildMemberWithName('fun')
+
 class AP_STACK(Closure):
     def __init__(self, debugger, obj):
         super(AP_STACK, self).__init__(debugger, obj)
 
-class Indirection(Closure):
+    def __repr__(self):
+        return '<AP_STACK info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
+class Ind(Closure):
     def __init__(self, debugger, obj):
-        super(Indirection, self).__init__(debugger, obj)
+        super(Ind, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<Ind info_table:{0} indirectee:{1}>'.format(self.info_table(), self.indirectee.GetValue())
+
+    def reify(self):
+        super(Ind, self).reify()
+        self.indirectee = self.obj.GetChildMemberWithName('indirectee')
+
+class IndStatic(Closure):
+    def __init__(self, debugger, obj):
+        super(IndStatic, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<IndStatic info_table:{0} indirectee:{1} static_link:{2} saved_info:{3}>'.format(
+            self.info_table(),
+            self.indirectee.GetValue(),
+            self.static_link.GetValue(),
+            self.saved_info.GetValue())
+
+    def reify(self):
+        super(IndStatic, self).reify()
+        self.indirectee = self.obj.GetChildMemberWithName('indirectee')
+        self.static_link = self.obj.GetChildMemberWithName('static_link') # StgClosure
+        self.saved_info = self.obj.GetChildMemberWithName('saved_info') # StgInfoTable
 
 class RetSmall(Closure):
     def __init__(self, debugger, obj):
         super(RetSmall, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<RetSmall info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class RetBig(Closure):
     def __init__(self, debugger, obj):
         super(RetBig, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<RetBig info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class RetDyn(Closure):
     def __init__(self, debugger, obj):
         super(RetDyn, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<RetDyn info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class RetFun(Closure):
     def __init__(self, debugger, obj):
         super(RetFun, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<RetFun info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class UpdateFrame(Closure):
     def __init__(self, debugger, obj):
         super(UpdateFrame, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<UpdateFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class CatchFrame(Closure):
     def __init__(self, debugger, obj):
         super(CatchFrame, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<CatchFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class UnderflowFrame(Closure):
     def __init__(self, debugger, obj):
         super(UnderflowFrame, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<UnderflowFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class StopFrame(Closure):
     def __init__(self, debugger, obj):
         super(StopFrame, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<StopFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class BlockingQueue(Closure):
     def __init__(self, debugger, obj):
         super(BlockingQueue, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<BlockingQueue info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class BlackHole(Closure):
     def __init__(self, debugger, obj):
         super(BlackHole, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<BlackHole info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class MVar(Closure):
     def __init__(self, debugger, obj):
         super(MVar, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<MVar head:{0} tail:{1} value:{2}>'.format(self.head, self.tail, self.value)
+
+    def reify(self):
+        super(MVar, self).reify()
+        self.head = self.obj.GetChildMemberWithName('head')
+        self.tail = self.obj.GetChildMemberWithName('tail')
+        self.value = Closure.get(self.debugger, self.obj.GetChildMemberWithName('value'))
+
 class Array(Closure):
     def __init__(self, debugger, obj):
         super(Array, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<Array info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class MutableArray(Closure):
     def __init__(self, debugger, obj):
         super(MutableArray, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<MutableArray info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class IORef(Closure):
     def __init__(self, debugger, obj):
         super(IORef, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<IORef info_table:{0} var:{1}>'.format(self.info_table(), self.var)
+
+    def reify(self):
+        super(IORef, self).reify()
+        self.var = Closure.get(self.debugger, self.obj.GetChildMemberWithName('var'))
 
 class WeakRef(Closure):
     def __init__(self, debugger, obj):
         super(WeakRef, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<WeakRef info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class Primitive(Closure):
     def __init__(self, debugger, obj):
         super(Primitive, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<Primitive info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class MutablePrimitive(Closure):
     def __init__(self, debugger, obj):
         super(MutablePrimitive, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<MutablePrimitive info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class TSO(Closure):
     def __init__(self, debugger, obj):
         super(TSO, self).__init__(debugger, obj)
         pass
 
+    def __repr__(self):
+        stackobj_str = self.stackobj.GetValue()
+        what_next_str = TSO.what_next_map[self.what_next.GetValueAsUnsigned()]
+        why_blocked_str = TSO.why_blocked_map[self.why_blocked.GetValueAsUnsigned()]
+        return '<TSO id:{0} stackobj:{1} what_next:{2} why_blocked:{3} flags:{4} saved_errno:{5} dirty:{6} block_info:{7} bq:{8}>'.format(
+            self.id.GetValue(),
+            stackobj_str,
+            what_next_str,
+            why_blocked_str,
+            self.flags.GetValue(),
+            self.saved_errno.GetValue(),
+            bool(self.dirty.GetValueAsUnsigned()),
+            self.block_info.GetValue(),
+            self.bq)
+
+    what_next_map = {0:  'NotBlocked'
+                    ,1:  'BlockedOnMVar'
+                    ,2:  'BlockedOnBlackHole'
+                    ,3:  'BlockedOnRead'
+                    ,4:  'BlockedOnWrite'
+                    ,5:  'BlockedOnDelay'
+                    ,6:  'BlockedOnSTM'
+                    ,7:  'BlockedOnDoProc'
+                    ,8:  'BlockedOnGA'
+                    ,9:  'BlockedOnGA_NoSend'
+                    ,10: 'BlockedOnCCall'
+                    ,11: 'BlockedOnCCall_Interruptible'
+                    ,12: 'BlockedOnMsgThrowTo'
+                    ,13: 'ThreadMigrating'}
+
+    why_blocked_map = {0: 'Unknown'
+                      ,1: 'ThreadRunGHC'
+                      ,2: 'ThreadInterpret'
+                      ,3: 'ThreadKilled'
+                      ,4: 'ThreadComplete'}
+
+    def reify(self):
+        super(TSO, self).reify()
+        self.stackobj = self.obj.GetChildMemberWithName('stackobj')
+        self.what_next = self.obj.GetChildMemberWithName('what_next')
+        self.why_blocked = self.obj.GetChildMemberWithName('why_blocked')
+        self.flags = self.obj.GetChildMemberWithName('flags')
+        self.id = self.obj.GetChildMemberWithName('id')
+        self.saved_errno = self.obj.GetChildMemberWithName('saved_errno')
+        self.dirty = self.obj.GetChildMemberWithName('dirty')
+        self.block_info = self.obj.GetChildMemberWithName('block_info')
+        self.bq = Closure.get(self.debugger, self.obj.GetChildMemberWithName('bq'))
+
 class Stack(Closure):
     def __init__(self, debugger, obj):
         super(Stack, self).__init__(debugger, obj)
 
     def __repr__(self):
-        return '<Stack stack_size:{0} dirty:{1} sp:{2} stack:{3}>'.format(self.stack_size.GetValueAsUnsigned(), self.dirty.GetValueAsUnsigned(), self.sp.GetValue(), self.stack.GetValue())
+        return '<Stack stack_size:{0} dirty:{1} sp:{2} stack:{3}>'.format(self.stack_size.GetValueAsUnsigned(), bool(self.dirty.GetValueAsUnsigned()), self.sp.GetValue(), self.stack.GetValue())
 
     def reify(self):
         super(Stack, self).reify()
@@ -233,17 +410,29 @@ class TRecChunk(Closure):
     def __init__(self, debugger, obj):
         super(TRecChunk, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<TRecChunk info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class AtomicallyFrame(Closure):
     def __init__(self, debugger, obj):
         super(AtomicallyFrame, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<AtomicallyFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class CatchRetryFrame(Closure):
     def __init__(self, debugger, obj):
         super(CatchRetryFrame, self).__init__(debugger, obj)
 
+    def __repr__(self):
+        return '<CatchRetryFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
 class CatchSTMFrame(Closure):
     def __init__(self, debugger, obj):
         super(CatchSTMFrame, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<CatchSTMFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class InfoTable(object):
     def __init__(self, debugger, info_table):
@@ -357,9 +546,9 @@ closure_print_map = {'CONSTR':               Constructor
                     ,'AP':                   AP
                     ,'PAP':                  PAP
                     ,'AP_STACK':             AP_STACK
-                    ,'IND':                  Indirection
-                    ,'IND_PERM':             Indirection
-                    ,'IND_STATIC':           Indirection
+                    ,'IND':                  Ind
+                    ,'IND_PERM':             Ind
+                    ,'IND_STATIC':           IndStatic
                     ,'RET_BCO ':             BCO
                     ,'RET_SMALL':            RetSmall
                     ,'RET_BIG':              RetBig
@@ -389,6 +578,6 @@ closure_print_map = {'CONSTR':               Constructor
                     ,'ATOMICALLY_FRAME':     AtomicallyFrame
                     ,'CATCH_RETRY_FRAME':    CatchRetryFrame
                     ,'CATCH_STM_FRAME':      CatchSTMFrame
-                    ,'WHITEHOLE':            Indirection}
+                    ,'WHITEHOLE':            Ind}
 
 
