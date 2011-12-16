@@ -3,17 +3,41 @@ import ghc_map
 
 # (lldb) command script import '/Source/ghc-lldb/ghc.py'
 
+class SyntheticClosureProvider(object):
+    def __init__(self, valobj, dict):
+        self.valobj = valobj
+        print dir(valobj)
+        print valobj.CreateChildAtOffset('foo', 0, valobj.GetType()).AddressOf().AddressOf()
+        self.closure = Closure.get(lldb.debugger, valobj)
+        self.update()
+
+    def num_children(self):
+        return len(self.closure.payload)
+
+    def get_child_index(self, name):
+        try:
+            return int(name.lstrip('[').rstrip(']'))
+        except:
+            return -1;
+
+    def get_child_at_index(self,index):
+        return self.closure.payload[index]
+
+    def update(self):
+        # self.closure = Closure.get(valobj) ?
+        pass
+
 class Closure(object):
     def __init__(self, debugger, obj):
         self.debugger = debugger
         self.obj = obj
         self.payload = []
 
-    def __str__(self):
-        return str(self.info_table()) + ' ' + str(self.payload)
+    # def __str__(self):
+    #   return str(self.info_table()) + ' ' + str(self.payload)
 
     def __repr__(self):
-        return str(self.info_table()) + ' ' + str(self.payload)
+        return '<Closure info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
     def reify(self):
         info = self.info_table().info_table
@@ -65,11 +89,13 @@ class Closure(object):
 
         info_table = self.info_table()
         closure_type = info_table.type()
-        type_name = Closure.type_name(closure_type.GetValueAsUnsigned())
+        type_tag = closure_type.GetValueAsUnsigned()
+        type_name = Closure.type_name(type_tag)
         target = debugger.GetSelectedTarget()
         closure_type = find_first_type(debugger, type_name)
         # propagate the constructor desciption or info table name to the closure
-        closure =  Closure(debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
+        closure = closure_print_map[ghc_map.closure_name_map[type_tag]](debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
+        # closure = Closure(debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
         closure.reify()
         return closure
         # obj.CreateChildAtOffset(name, 0, closure_type)
@@ -82,117 +108,154 @@ class Closure(object):
 
 class Constructor(Closure):
     def __init__(self, debugger, obj):
-        super(Closure, self).__init__(debugger, obj)
-        pass
+        super(Constructor, self).__init__(debugger, obj)
 
 class Function(Closure):
     def __init__(self, debugger, obj):
-        super(Closure, self).__init__(debugger, obj)
-        pass
+        super(Function, self).__init__(debugger, obj)
 
 class Thunk(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(Thunk, self).__init__(debugger, obj)
 
 class Selector(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(Selector, self).__init__(debugger, obj)
 
 class BCO(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(BCO, self).__init__(debugger, obj)
 
 class AP(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(AP, self).__init__(debugger, obj)
 
 class PAP(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(PAP, self).__init__(debugger, obj)
+
+class AP_STACK(Closure):
+    def __init__(self, debugger, obj):
+        super(AP_STACK, self).__init__(debugger, obj)
 
 class Indirection(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(Indirection, self).__init__(debugger, obj)
+
+class RetSmall(Closure):
+    def __init__(self, debugger, obj):
+        super(RetSmall, self).__init__(debugger, obj)
+
+class RetBig(Closure):
+    def __init__(self, debugger, obj):
+        super(RetBig, self).__init__(debugger, obj)
+
+class RetDyn(Closure):
+    def __init__(self, debugger, obj):
+        super(RetDyn, self).__init__(debugger, obj)
+
+class RetFun(Closure):
+    def __init__(self, debugger, obj):
+        super(RetFun, self).__init__(debugger, obj)
 
 class UpdateFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(UpdateFrame, self).__init__(debugger, obj)
 
 class CatchFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(CatchFrame, self).__init__(debugger, obj)
 
 class UnderflowFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(UnderflowFrame, self).__init__(debugger, obj)
 
 class StopFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(StopFrame, self).__init__(debugger, obj)
 
 class BlockingQueue(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(BlockingQueue, self).__init__(debugger, obj)
+
+class BlackHole(Closure):
+    def __init__(self, debugger, obj):
+        super(BlackHole, self).__init__(debugger, obj)
 
 class MVar(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(MVar, self).__init__(debugger, obj)
 
 class Array(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(Array, self).__init__(debugger, obj)
 
 class MutableArray(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(MutableArray, self).__init__(debugger, obj)
 
 class IORef(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(IORef, self).__init__(debugger, obj)
 
 class WeakRef(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(WeakRef, self).__init__(debugger, obj)
 
 class Primitive(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(Primitive, self).__init__(debugger, obj)
 
 class MutablePrimitive(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(MutablePrimitive, self).__init__(debugger, obj)
 
 class TSO(Closure):
     def __init__(self, debugger, obj):
+        super(TSO, self).__init__(debugger, obj)
         pass
 
 class Stack(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(Stack, self).__init__(debugger, obj)
+
+    def __repr__(self):
+        return '<Stack stack_size:{0} dirty:{1} sp:{2} stack:{3}>'.format(self.stack_size.GetValueAsUnsigned(), self.dirty.GetValueAsUnsigned(), self.sp.GetValue(), self.stack.GetValue())
+
+    def reify(self):
+        super(Stack, self).reify()
+        self.stack_size = self.obj.GetChildMemberWithName('stack_size')
+        self.dirty = self.obj.GetChildMemberWithName('dirty')
+        self.sp = self.obj.GetChildMemberWithName('sp')
+        self.stack = self.obj.GetChildMemberWithName('stack')
 
 class TRecChunk(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(TRecChunk, self).__init__(debugger, obj)
 
 class AtomicallyFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(AtomicallyFrame, self).__init__(debugger, obj)
 
 class CatchRetryFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(CatchRetryFrame, self).__init__(debugger, obj)
 
 class CatchSTMFrame(Closure):
     def __init__(self, debugger, obj):
-        pass
+        super(CatchSTMFrame, self).__init__(debugger, obj)
 
 class InfoTable(object):
     def __init__(self, debugger, info_table):
         self.debugger = debugger
         self.info_table = info_table
 
-    def __str__(self):
-        return self.con_desc() or self.info_table.GetName()
+    # def __str__(self):
+    #    return self.con_desc() or self.info_table.GetName()
+
+    def __repr__(self):
+        name = self.con_desc() or self.info_table.GetName()
+        return '<InfoTable name:{0} entry:{1}>'.format(name, self.entry_symbol().GetName())
 
     def con_desc(self):
         target = self.debugger.GetSelectedTarget()
@@ -208,6 +271,11 @@ class InfoTable(object):
 
     def type(self):
         return self.info_table.GetChildMemberWithName('type')
+
+    def entry_symbol(self):
+        entry = self.info_table.AddressOf().GetValueForExpressionPath('[1]')
+        target = self.debugger.GetSelectedTarget()
+        return target.ResolveSymbolContextForAddress(entry.GetAddress(), lldb.eSymbolContextSymbol).GetSymbol()
 
 def find_first_type(debugger, type_name):
     target = debugger.GetSelectedTarget()
@@ -261,4 +329,66 @@ def __lldb_init_module(debugger, session_dict):
     debugger.HandleCommand("command script add -f ghc.print_base_reg printBaseReg")
     debugger.HandleCommand("command script add -f ghc.print_current_tso printCurrentTSO")
     return None
+
+closure_print_map = {'CONSTR':               Constructor
+                    ,'CONSTR_1_0':           Constructor
+                    ,'CONSTR_0_1':           Constructor
+                    ,'CONSTR_2_0':           Constructor
+                    ,'CONSTR_1_1':           Constructor
+                    ,'CONSTR_0_2':           Constructor
+                    ,'CONSTR_STATIC':        Constructor
+                    ,'CONSTR_NOCAF_STATIC':  Constructor
+                    ,'FUN':                  Function
+                    ,'FUN_1_0':              Function
+                    ,'FUN_0_1':              Function
+                    ,'FUN_2_0':              Function
+                    ,'FUN_1_1':              Function
+                    ,'FUN_0_2':              Function
+                    ,'FUN_STATIC':           Function
+                    ,'THUNK':                Thunk
+                    ,'THUNK_1_0':            Thunk
+                    ,'THUNK_0_1':            Thunk
+                    ,'THUNK_2_0':            Thunk
+                    ,'THUNK_1_1':            Thunk
+                    ,'THUNK_0_2':            Thunk
+                    ,'THUNK_STATIC':         Thunk
+                    ,'THUNK_SELECTOR':       Selector
+                    ,'BCO':                  BCO
+                    ,'AP':                   AP
+                    ,'PAP':                  PAP
+                    ,'AP_STACK':             AP_STACK
+                    ,'IND':                  Indirection
+                    ,'IND_PERM':             Indirection
+                    ,'IND_STATIC':           Indirection
+                    ,'RET_BCO ':             BCO
+                    ,'RET_SMALL':            RetSmall
+                    ,'RET_BIG':              RetBig
+                    ,'RET_DYN':              RetDyn
+                    ,'RET_FUN ':             RetFun
+                    ,'UPDATE_FRAME':         UpdateFrame
+                    ,'CATCH_FRAME':          CatchFrame
+                    ,'UNDERFLOW_FRAME':      UnderflowFrame
+                    ,'STOP_FRAME':           StopFrame
+                    ,'BLOCKING_QUEUE':       BlockingQueue
+                    ,'BLACKHOLE':            BlackHole
+                    ,'MVAR_CLEAN':           MVar
+                    ,'MVAR_DIRTY':           MVar
+                    ,'ARR_WORDS':            Array
+                    ,'MUT_ARR_PTRS_CLEAN':   MutableArray
+                    ,'MUT_ARR_PTRS_DIRTY':   MutableArray
+                    ,'MUT_ARR_PTRS_FROZEN0': MutableArray
+                    ,'MUT_ARR_PTRS_FROZEN':  MutableArray
+                    ,'MUT_VAR_CLEAN':        IORef
+                    ,'MUT_VAR_DIRTY':        IORef
+                    ,'WEAK':                 WeakRef
+                    ,'PRIM':                 Primitive
+                    ,'MUT_PRIM':             MutablePrimitive
+                    ,'TSO':                  TSO
+                    ,'STACK':                Stack
+                    ,'TREC_CHUNK':           TRecChunk
+                    ,'ATOMICALLY_FRAME':     AtomicallyFrame
+                    ,'CATCH_RETRY_FRAME':    CatchRetryFrame
+                    ,'CATCH_STM_FRAME':      CatchSTMFrame
+                    ,'WHITEHOLE':            Indirection}
+
 
