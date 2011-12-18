@@ -5,27 +5,61 @@ import ghc_map
 
 class SyntheticClosureProvider(object):
     def __init__(self, valobj, dict):
+        if valobj.AddressOf() == None:
+            raise "AddressOf() == None"
+
         self.valobj = valobj
-        print dir(valobj)
-        print valobj.CreateChildAtOffset('foo', 0, valobj.GetType()).AddressOf().AddressOf()
-        self.closure = Closure.get(lldb.debugger, valobj)
         self.update()
 
     def num_children(self):
-        return len(self.closure.payload)
+        return self.closure.num_children() + 1
 
     def get_child_index(self, name):
-        try:
-            return int(name.lstrip('[').rstrip(']'))
-        except:
-            return -1;
+        if name == 'info':
+            return 0
+        else:
+            return self.closure.get_child_index(name) + 1
 
     def get_child_at_index(self,index):
-        return self.closure.payload[index]
+        if index == 0:
+            return self.closure.info_table().info_table
+        else:
+            return self.closure.get_child_at_index(index - 1)
 
     def update(self):
-        # self.closure = Closure.get(valobj) ?
-        pass
+        self.closure = Closure.get(lldb.debugger, self.valobj.AddressOf())
+
+class SyntheticInfoTableProvider(object):
+    def __init__(self, valobj, dict):
+        if valobj.AddressOf() == None:
+            raise "AddressOf() == None"
+
+        self.valobj = valobj
+        self.update()
+
+    def num_children(self):
+        return 2
+
+    def get_child_index(self, name):
+        if name == 'type':
+            return 0
+        elif name == 'description':
+            return 1
+        else:
+            return -1
+
+    def get_child_at_index(self,index):
+        if index == 0:
+            return self.type
+        if index == 1:
+            return self.description
+        else:
+            return None
+
+    def update(self):
+        self.type = self.valobj.GetChildMemberWithName('type')
+        self.info = InfoTable.get(lldb.debugger, self.valobj.AddressOf())
+        self.description = self.info.con_desc2()
 
 class Closure(object):
     def __init__(self, debugger, obj):
@@ -36,8 +70,20 @@ class Closure(object):
     # def __str__(self):
     #   return str(self.info_table()) + ' ' + str(self.payload)
 
-    def __repr__(self):
-        return '<Closure info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<Closure info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
+    def num_children(self):
+        return len(self.payload)
+
+    def get_child_index(self, name):
+        try:
+            return int(name.lstrip('[').rstrip(']'))
+        except:
+            return -1;
+
+    def get_child_at_index(self,index):
+        return self.payload[index]
 
     def reify(self):
         info = self.info_table().info_table
@@ -48,33 +94,43 @@ class Closure(object):
         # so strip the StgClosure[1] type of the array size, leaving StgClosure* (which is not bounds checked)
         payload = self.obj.GetValueForExpressionPath('.payload[0]').AddressOf()
 
+        closure_type = find_first_type(lldb.debugger, 'StgClosure')
         i = 0
         while i < ptrs:
-            payload_i = payload.GetValueForExpressionPath('[' + str(i) + ']')
-            self.payload.append(Closure.get(self.debugger, payload_i))
+            name = 'arg{0}'.format(i)
+            payload_i = payload.CreateChildAtOffset(name, i*8, closure_type.GetPointerType()).Dereference()
+            self.payload.append(Closure.cast(self.debugger, payload_i))
             i += 1
 
+        long_type = self.obj.GetType().GetBasicType(lldb.eBasicTypeUnsignedLong)
         while i < ptrs+nptrs:
-            payload_i = payload.GetValueForExpressionPath('[' + str(i) + ']')
-            self.payload.append(payload_i.GetValueAsUnsigned())
+            name = 'arg{0}'.format(i)
+            payload_i = payload.CreateChildAtOffset(name, i*8, long_type)
+            self.payload.append(payload_i.Cast(long_type))
             i += 1
 
     @staticmethod
     def untag(debugger, obj):
-        # TODO: untag for integers and pointers
-        closure_type = find_first_type(debugger, 'StgClosure_')
-        return obj.CreateValueFromAddress(obj.GetName() + '_closure', obj.GetValueAsUnsigned() & ~7, closure_type)
+        closure_type = find_first_type(debugger, 'StgClosure')
+        # closure_type = obj.GetType().GetPointeeType()
+        ptr = obj.GetValueAsUnsigned()
+        if ptr & 0x7 == 0:
+            return obj
+        else:
+            ptr = ptr & ~7
+            return obj.CreateValueFromAddress(obj.GetName(), ptr, closure_type)
 
     def info_table(self):
         target = self.debugger.GetSelectedTarget()
-        header = self.obj.GetValueForExpressionPath('.header') # TODO: remove
+
         # lldb doesn't support negative subscripts, this would be cleaner as '.header.info[-1]'
         info_table = self.obj.GetValueForExpressionPath('.header.info')
         info_table_sym = target.ResolveSymbolContextForAddress(info_table.Dereference().GetAddress(), lldb.eSymbolContextSymbol).GetSymbol()
-        # sym.GetStartAddress().GetLoadAddress(target)
+
         # cast it back to the info table
         stg_info_table_type = find_first_type(self.debugger, 'StgInfoTable_')
         offset_info_table = info_table.CreateValueFromAddress(info_table_sym.GetName(), info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
+
         return InfoTable(self.debugger, offset_info_table)
 
     @staticmethod
@@ -83,22 +139,44 @@ class Closure(object):
         return ghc_map.closure_type_map[name]
 
     @staticmethod
+    def cast(debugger, obj):
+        try:
+            info_table = InfoTable.get(debugger, obj)
+            # find what the runtime closure type is by inspecting the infotable type
+            closure_type = info_table.type()
+            type_tag = closure_type.GetValueAsUnsigned()
+            type_name = Closure.type_name(type_tag)
+            target = debugger.GetSelectedTarget()
+            return obj.Cast(find_first_type(debugger, type_name))
+
+        except:
+            return obj
+
+    @staticmethod
     def get(debugger, obj):
+        if obj == None:
+            return None
+
         obj = Closure.untag(debugger, obj)
+        if obj == None:
+            return None
+
         self = Closure(debugger, obj)
 
+        # find what the runtime closure type is by inspecting the infotable type
         info_table = self.info_table()
         closure_type = info_table.type()
         type_tag = closure_type.GetValueAsUnsigned()
         type_name = Closure.type_name(type_tag)
+
         target = debugger.GetSelectedTarget()
         closure_type = find_first_type(debugger, type_name)
         # propagate the constructor desciption or info table name to the closure
-        closure = closure_print_map[ghc_map.closure_name_map[type_tag]](debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
-        # closure = Closure(debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
+        ctor = closure_print_map[ghc_map.closure_name_map[type_tag]]
+        closure = ctor(debugger, obj.CreateValueFromAddress(str(info_table), obj.GetLoadAddress(), closure_type))
         closure.reify()
+
         return closure
-        # obj.CreateChildAtOffset(name, 0, closure_type)
 
     @staticmethod
     def get_expression(expr):
@@ -110,29 +188,29 @@ class Constructor(Closure):
     def __init__(self, debugger, obj):
         super(Constructor, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Constructor info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<Constructor info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class Function(Closure):
     def __init__(self, debugger, obj):
         super(Function, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Function info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<Function info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class Thunk(Closure):
     def __init__(self, debugger, obj):
         super(Thunk, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Thunk info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<Thunk info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class Selector(Closure):
     def __init__(self, debugger, obj):
         super(Selector, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Selector info_table:{0} selectee:{1}>'.format(self.info_table(), self.selectee)
+    # def __repr__(self):
+        # return '<Selector info_table:{0} selectee:{1}>'.format(self.info_table(), self.selectee)
 
     def reify(self):
         super(Selector, self).reify()
@@ -142,26 +220,14 @@ class BCO(Closure):
     def __init__(self, debugger, obj):
         super(BCO, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<BCO info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
-
-class AP(PAP):
-    def __init__(self, debugger, obj):
-        super(AP, self).__init__(debugger, obj)
-
-    def __repr__(self):
-        return '<AP info_table:{0} arity:{1} n_args:{2} fun:{3} payload:{4}>'.format(
-            self.info_table(),
-            self.arity.GetValue(),
-            self.n_args.GetValue(),
-            self.fun.GetValue(),
-            self.payload)
+    # def __repr__(self):
+        # return '<BCO info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class PAP(Closure):
     def __init__(self, debugger, obj):
         super(PAP, self).__init__(debugger, obj)
 
-    def __repr__(self):
+    def __foorepr__(self):
         return '<PAP info_table:{0} arity:{1} n_args:{2} fun:{3} payload:{4}>'.format(
             self.info_table(),
             self.arity.GetValue(),
@@ -175,19 +241,31 @@ class PAP(Closure):
         self.n_args = self.obj.GetChildMemberWithName('n_args')
         self.fun = self.obj.GetChildMemberWithName('fun')
 
+class AP(PAP):
+    def __init__(self, debugger, obj):
+        super(AP, self).__init__(debugger, obj)
+
+    def __foorepr__(self):
+        return '<AP info_table:{0} arity:{1} n_args:{2} fun:{3} payload:{4}>'.format(
+            self.info_table(),
+            self.arity.GetValue(),
+            self.n_args.GetValue(),
+            self.fun.GetValue(),
+            self.payload)
+
 class AP_STACK(Closure):
     def __init__(self, debugger, obj):
         super(AP_STACK, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<AP_STACK info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<AP_STACK info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class Ind(Closure):
     def __init__(self, debugger, obj):
         super(Ind, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Ind info_table:{0} indirectee:{1}>'.format(self.info_table(), self.indirectee.GetValue())
+    # def __repr__(self):
+        # return '<Ind info_table:{0} indirectee:{1}>'.format(self.info_table(), self.indirectee.GetValue())
 
     def reify(self):
         super(Ind, self).reify()
@@ -197,7 +275,7 @@ class IndStatic(Closure):
     def __init__(self, debugger, obj):
         super(IndStatic, self).__init__(debugger, obj)
 
-    def __repr__(self):
+    def __foorepr__(self):
         return '<IndStatic info_table:{0} indirectee:{1} static_link:{2} saved_info:{3}>'.format(
             self.info_table(),
             self.indirectee.GetValue(),
@@ -214,78 +292,78 @@ class RetSmall(Closure):
     def __init__(self, debugger, obj):
         super(RetSmall, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<RetSmall info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<RetSmall info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class RetBig(Closure):
     def __init__(self, debugger, obj):
         super(RetBig, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<RetBig info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<RetBig info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class RetDyn(Closure):
     def __init__(self, debugger, obj):
         super(RetDyn, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<RetDyn info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<RetDyn info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class RetFun(Closure):
     def __init__(self, debugger, obj):
         super(RetFun, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<RetFun info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<RetFun info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class UpdateFrame(Closure):
     def __init__(self, debugger, obj):
         super(UpdateFrame, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<UpdateFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<UpdateFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class CatchFrame(Closure):
     def __init__(self, debugger, obj):
         super(CatchFrame, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<CatchFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<CatchFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class UnderflowFrame(Closure):
     def __init__(self, debugger, obj):
         super(UnderflowFrame, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<UnderflowFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<UnderflowFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class StopFrame(Closure):
     def __init__(self, debugger, obj):
         super(StopFrame, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<StopFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<StopFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class BlockingQueue(Closure):
     def __init__(self, debugger, obj):
         super(BlockingQueue, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<BlockingQueue info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<BlockingQueue info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class BlackHole(Closure):
     def __init__(self, debugger, obj):
         super(BlackHole, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<BlackHole info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<BlackHole info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class MVar(Closure):
     def __init__(self, debugger, obj):
         super(MVar, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<MVar head:{0} tail:{1} value:{2}>'.format(self.head, self.tail, self.value)
+    # def __repr__(self):
+        # return '<MVar head:{0} tail:{1} value:{2}>'.format(self.head, self.tail, self.value)
 
     def reify(self):
         super(MVar, self).reify()
@@ -297,22 +375,41 @@ class Array(Closure):
     def __init__(self, debugger, obj):
         super(Array, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Array info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<Array info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class MutableArray(Closure):
     def __init__(self, debugger, obj):
         super(MutableArray, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<MutableArray info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<MutableArray info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+
+    def reify(self):
+        super(MutableArray, self).reify()
+        self.ptrs = self.obj.GetChildMemberWithName('ptrs')
+
+    def num_children(self):
+        return 1
+
+    def get_child_index(self, name):
+        if name == 'ptrs':
+            return 0
+        else:
+            return None
+
+    def get_child_at_index(self, index):
+        if index == 1:
+            return self.ptrs
+        else:
+            return None
 
 class IORef(Closure):
     def __init__(self, debugger, obj):
         super(IORef, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<IORef info_table:{0} var:{1}>'.format(self.info_table(), self.var)
+    # def __repr__(self):
+        # return '<IORef info_table:{0} var:{1}>'.format(self.info_table(), self.var)
 
     def reify(self):
         super(IORef, self).reify()
@@ -322,29 +419,29 @@ class WeakRef(Closure):
     def __init__(self, debugger, obj):
         super(WeakRef, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<WeakRef info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<WeakRef info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class Primitive(Closure):
     def __init__(self, debugger, obj):
         super(Primitive, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Primitive info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<Primitive info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class MutablePrimitive(Closure):
     def __init__(self, debugger, obj):
         super(MutablePrimitive, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<MutablePrimitive info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<MutablePrimitive info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class TSO(Closure):
     def __init__(self, debugger, obj):
         super(TSO, self).__init__(debugger, obj)
         pass
 
-    def __repr__(self):
+    def __foorepr__(self):
         stackobj_str = self.stackobj.GetValue()
         what_next_str = TSO.what_next_map[self.what_next.GetValueAsUnsigned()]
         why_blocked_str = TSO.why_blocked_map[self.why_blocked.GetValueAsUnsigned()]
@@ -396,8 +493,8 @@ class Stack(Closure):
     def __init__(self, debugger, obj):
         super(Stack, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<Stack stack_size:{0} dirty:{1} sp:{2} stack:{3}>'.format(self.stack_size.GetValueAsUnsigned(), bool(self.dirty.GetValueAsUnsigned()), self.sp.GetValue(), self.stack.GetValue())
+    # def __repr__(self):
+        # return '<Stack stack_size:{0} dirty:{1} sp:{2} stack:{3}>'.format(self.stack_size.GetValueAsUnsigned(), bool(self.dirty.GetValueAsUnsigned()), self.sp.GetValue(), self.stack.GetValue())
 
     def reify(self):
         super(Stack, self).reify()
@@ -410,22 +507,22 @@ class TRecChunk(Closure):
     def __init__(self, debugger, obj):
         super(TRecChunk, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<TRecChunk info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<TRecChunk info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class AtomicallyFrame(Closure):
     def __init__(self, debugger, obj):
         super(AtomicallyFrame, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<AtomicallyFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<AtomicallyFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class CatchRetryFrame(Closure):
     def __init__(self, debugger, obj):
         super(CatchRetryFrame, self).__init__(debugger, obj)
 
-    def __repr__(self):
-        return '<CatchRetryFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+    # def __repr__(self):
+        # return '<CatchRetryFrame info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
 
 class CatchSTMFrame(Closure):
     def __init__(self, debugger, obj):
@@ -442,9 +539,20 @@ class InfoTable(object):
     # def __str__(self):
     #    return self.con_desc() or self.info_table.GetName()
 
-    def __repr__(self):
-        name = self.con_desc() or self.info_table.GetName()
-        return '<InfoTable name:{0} entry:{1}>'.format(name, self.entry_symbol().GetName())
+    # def __repr__(self):
+        # name = self.con_desc() or self.info_table.GetName()
+        # return '<InfoTable name:{0} entry:{1}>'.format(name, self.entry_symbol().GetName())
+
+    def con_desc2(self):
+        target = self.debugger.GetSelectedTarget()
+        stg_con_info_table_type = find_first_type(self.debugger, 'StgConInfoTable_')
+        # stg_con_info_table_type = target.FindFirstType('StgConInfoTable_') # waiting on bug 11574
+        con_info = self.info_table.Cast(stg_con_info_table_type)
+        con_info_ptr = con_info.AddressOf()
+        char_type = self.info_table.GetType().GetBasicType(lldb.eBasicTypeChar)
+        base = con_info_ptr.GetValueForExpressionPath('[1]')
+        offset = con_info_ptr.GetValueForExpressionPath('[1].con_desc').GetValueAsUnsigned()
+        return base.CreateChildAtOffset('description', offset, char_type).AddressOf()
 
     def con_desc(self):
         target = self.debugger.GetSelectedTarget()
@@ -465,6 +573,10 @@ class InfoTable(object):
         entry = self.info_table.AddressOf().GetValueForExpressionPath('[1]')
         target = self.debugger.GetSelectedTarget()
         return target.ResolveSymbolContextForAddress(entry.GetAddress(), lldb.eSymbolContextSymbol).GetSymbol()
+
+    @staticmethod
+    def get(debugger, obj):
+        return InfoTable(debugger, obj)
 
 def find_first_type(debugger, type_name):
     target = debugger.GetSelectedTarget()
@@ -517,6 +629,8 @@ def __lldb_init_module(debugger, session_dict):
     debugger.HandleCommand("command script add -f ghc.print_obj_dbg printObj")
     debugger.HandleCommand("command script add -f ghc.print_base_reg printBaseReg")
     debugger.HandleCommand("command script add -f ghc.print_current_tso printCurrentTSO")
+    debugger.HandleCommand("type synthetic add StgClosure_ --python-class ghc.SyntheticClosureProvider")
+    debugger.HandleCommand("type synthetic add StgInfoTable_ --python-class ghc.SyntheticInfoTableProvider")
     return None
 
 closure_print_map = {'CONSTR':               Constructor
@@ -579,5 +693,4 @@ closure_print_map = {'CONSTR':               Constructor
                     ,'CATCH_RETRY_FRAME':    CatchRetryFrame
                     ,'CATCH_STM_FRAME':      CatchSTMFrame
                     ,'WHITEHOLE':            Ind}
-
 
