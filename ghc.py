@@ -66,13 +66,7 @@ class Closure(object):
     def __init__(self, debugger, obj):
         self.debugger = debugger
         self.obj = obj
-        self.payload = []
-
-    # def __str__(self):
-    #   return str(self.info_table()) + ' ' + str(self.payload)
-
-    # def __repr__(self):
-        # return '<Closure info_table:{0} payload:{1}>'.format(self.info_table(), self.payload)
+        self.payload = {}
 
     def num_children(self):
         return len(self.payload)
@@ -97,17 +91,32 @@ class Closure(object):
 
         closure_type = find_first_type(lldb.debugger, 'StgClosure')
         i = 0
-        while i < ptrs:
+        while i < min(ptrs, 128):
+            # do two passes over the object to get a more descriptive name
             name = 'arg{0}'.format(i)
-            payload_i = payload.CreateChildAtOffset(name, i*8, closure_type.GetPointerType()).Dereference()
-            self.payload.append(Closure.cast(self.debugger, payload_i))
+
+            try:
+                payload_i = payload.CreateChildAtOffset(name, i*8, closure_type.GetPointerType()).Dereference()
+                closure_i = Closure.get(self.debugger, payload_i)
+                closure_name = Closure.closure_name(closure_i.info_table().type().GetValueAsUnsigned())
+            except:
+                closure_name = 'unknown'
+
+            # append the closure type so we end up with a string like 'arg0_FUN_STATIC'
+            name = 'arg{0}_{1}'.format(i, closure_name)
+            payload_i = payload.CreateChildAtOffset(name, i*8, closure_type.GetPointerType())
+            payload_i = Closure.cast(self.debugger, payload_i.Dereference())
+
+            self.payload[i] = payload_i
+
             i += 1
 
+        i = ptrs
         long_type = self.obj.GetType().GetBasicType(lldb.eBasicTypeUnsignedLong)
-        while i < ptrs+nptrs:
+        while i < min(ptrs+nptrs, 128):
             name = 'arg{0}'.format(i)
             payload_i = payload.CreateChildAtOffset(name, i*8, long_type)
-            self.payload.append(payload_i.Cast(long_type))
+            self.payload[i] = payload_i.Cast(long_type)
             i += 1
 
     @staticmethod
@@ -130,7 +139,8 @@ class Closure(object):
 
         # cast it back to the info table
         stg_info_table_type = find_first_type(self.debugger, 'StgInfoTable_')
-        offset_info_table = info_table.CreateValueFromAddress(decode_z_str(info_table_sym.GetName()), info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
+        info_table_ptr = info_table.GetValueAsUnsigned() - 16
+        offset_info_table = info_table.CreateValueFromAddress(decode_z_str(info_table_sym.GetName()), info_table_ptr, stg_info_table_type)
 
         return InfoTable(self.debugger, offset_info_table)
 
@@ -138,6 +148,10 @@ class Closure(object):
     def type_name(tag):
         name = ghc_map.closure_name_map[tag]
         return ghc_map.closure_type_map[name]
+
+    @staticmethod
+    def closure_name(tag):
+        return ghc_map.closure_name_map[tag]
 
     @staticmethod
     def cast(debugger, obj):
@@ -653,6 +667,9 @@ z_decoder = {'ZL': '('
             ,'zv': '%'}
 
 def decode_z_str(str):
+    if str == None:
+        return None
+
     str2 = ''
     splits = re.split('([zZ].)', str)
     for split in splits:
