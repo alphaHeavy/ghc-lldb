@@ -1,5 +1,6 @@
 import lldb
 import ghc_map
+import re
 
 # (lldb) command script import '/Source/ghc-lldb/ghc.py'
 
@@ -129,7 +130,7 @@ class Closure(object):
 
         # cast it back to the info table
         stg_info_table_type = find_first_type(self.debugger, 'StgInfoTable_')
-        offset_info_table = info_table.CreateValueFromAddress(info_table_sym.GetName(), info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
+        offset_info_table = info_table.CreateValueFromAddress(decode_z_str(info_table_sym.GetName()), info_table.GetValueAsUnsigned() - 16, stg_info_table_type)
 
         return InfoTable(self.debugger, offset_info_table)
 
@@ -564,7 +565,7 @@ class InfoTable(object):
         base = con_info_ptr.GetValueForExpressionPath('[1]')
         offset = con_info_ptr.GetValueForExpressionPath('[1].con_desc').GetValueAsUnsigned()
         summary = base.CreateValueFromAddress('con_desc', base.GetLoadAddress()+offset, char_type).AddressOf().GetSummary()
-        return summary.strip('"') if summary else None
+        return decode_z_str(summary.strip('"')) if summary else None
 
     def type(self):
         return self.info_table.GetChildMemberWithName('type')
@@ -624,6 +625,43 @@ def print_base_reg(debuger, args, result, dict):
 def print_current_tso(debugger, args, result, dict):
     frame = lldb.thread.GetSelectedFrame()
     print frame.EvaluateExpression('*((StgRegTable_*)$r13)->rCurrentTSO')
+
+z_decoder = {'ZL': '('
+            ,'ZR': ')' 
+            ,'ZM': '['
+            ,'ZN': ']'
+            ,'ZC': ':'
+            ,'ZZ': 'Z'
+            ,'zz': 'z'
+            ,'za': '&'
+            ,'zb': '|'
+            ,'zc': '^'
+            ,'zd': '$'
+            ,'ze': '='
+            ,'zg': '>'
+            ,'zh': '#'
+            ,'zi': '.'
+            ,'zl': '<'
+            ,'zm': '-'
+            ,'zn': '!'
+            ,'zp': '+'
+            ,'zq': '\''
+            ,'zr': '\\'
+            ,'zs': '/'
+            ,'zt': '*'
+            ,'zu': '_'
+            ,'zv': '%'}
+
+def decode_z_str(str):
+    str2 = ''
+    splits = re.split('([zZ].)', str)
+    for split in splits:
+        if len(split) == 2 and (split[0] == 'Z' or split[0] == 'z'):
+            str2 += z_decoder.get(split, split[1])
+        else:
+            str2 += split
+
+    return str2
 
 def __lldb_init_module(debugger, session_dict):
     debugger.HandleCommand("command script add -f ghc.print_obj_dbg printObj")
